@@ -695,20 +695,35 @@ def hw_files(hw_id):
     return q("SELECT * FROM homework_files WHERE homework_id=? ORDER BY id", hw_id)
 
 
+HW_SHOWN = 2          # сколько последних домашних заданий показывать
+
+
+def recent_hws(sid, n=HW_SHOWN):
+    return q("SELECT * FROM homework WHERE student_id=? ORDER BY id DESC LIMIT ?", sid, n)
+
+
+def hw_title(i, hw):
+    label = "Текущее задание" if i == 0 else "Предыдущее задание"
+    return f"📚 <b>{label}</b> ({fmt_date(hw['created'][:10])})"
+
+
 def hw_view(cid, sid, mid=None):
     st = student(sid)
-    hw = latest_hw(sid)
+    hws = recent_hws(sid)
     kb = [[btn("✍️ Новая домашка", f"hw:{sid}:0")]]
-    if hw:
-        files = hw_files(hw["id"])
-        text = (f"📚 <b>Домашка: {esc(st['name'])}</b> (от {fmt_date(hw['created'][:10])})\n\n"
-                f"{esc(clip(hw['text'], 3000))}")
-        text += f"\n\n📎 Вложений: {len(files)}" if files else ""
-        text += "\n\n" + ("✅ Доставлена ученику" if hw["delivered"] else "Ученику не доставлена")
-        if files:
-            kb.append([btn("📎 Показать вложения", f"hwf:{sid}")])
+    if hws:
+        parts = [f"📚 <b>Домашка: {esc(st['name'])}</b>"]
+        for i, hw in enumerate(hws):
+            files = hw_files(hw["id"])
+            block = f"{hw_title(i, hw)}\n{esc(clip(hw['text'], 1700))}"
+            if files:
+                block += f"\n📎 Вложений: {len(files)}"
+                kb.append([btn(f"📎 Вложения от {fmt_date(hw['created'][:10])}", f"hwfi:{hw['id']}")])
+            block += "\n" + ("✅ Доставлено ученику" if hw["delivered"] else "Ученику не доставлено")
+            parts.append(block)
+        text = "\n\n".join(parts)
         if st["tg_chat_id"]:
-            kb.append([btn("📤 Отправить ещё раз", f"hwre:{sid}")])
+            kb.append([btn("📤 Отправить текущее ещё раз", f"hwre:{sid}")])
     else:
         text = f"📚 <b>Домашка: {esc(st['name'])}</b>\nПока не задавалась."
     kb.append([btn("⬅️ Карточка", f"s:{sid}")])
@@ -1262,11 +1277,16 @@ def teacher_callback(cq, data, cid, mid):
              [[btn("👤 Карточка", f"s:{st['sid']}")]] if st and st.get("sid") else None, mid)
         return
 
-    if a == "hwf":
+    if a == "hwf":      # кнопка из старых сообщений: вложения последнего задания ученика
         hw = latest_hw(int(p[1]))
         if hw:
             for f in hw_files(hw["id"]):
                 copy_message(cid, f["from_chat_id"], f["message_id"])
+        return
+
+    if a == "hwfi":     # вложения конкретного задания
+        for f in hw_files(int(p[1])):
+            copy_message(cid, f["from_chat_id"], f["message_id"])
         return
 
     if a == "hwre":
@@ -1315,13 +1335,12 @@ def student_card(cid, st, mid=None):
              f"Ближайшее занятие: {fmt_when(nl) if nl else '—'}",
              f"Постоянное расписание: {slots_text(sid) or '—'}"]
     kb = [[btn("📅 Занятия на неделю", "st:week")]]
-    hw = latest_hw(sid)
-    if hw:
-        lines += ["", f"📚 <b>Домашнее задание</b> ({fmt_date(hw['created'][:10])}):",
-                  esc(clip(hw["text"], 2500))]
+    for i, hw in enumerate(recent_hws(sid)):
+        lines += ["", hw_title(i, hw), esc(clip(hw["text"], 1700))]
         files = hw_files(hw["id"])
         if files:
-            kb.append([btn(f"📎 Материалы к заданию ({len(files)})", "st:files")])
+            kb.append([btn(f"📎 Материалы от {fmt_date(hw['created'][:10])} ({len(files)})",
+                           f"st:f:{hw['id']}")])
     kb.append([btn("🔄 Обновить", "st:card")])
     show(cid, "\n".join(lines), kb, mid)
 
