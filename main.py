@@ -695,7 +695,7 @@ def hw_files(hw_id):
     return q("SELECT * FROM homework_files WHERE homework_id=? ORDER BY id", hw_id)
 
 
-HW_SHOWN = 2          # сколько последних домашних заданий показывать
+HW_SHOWN = 3          # сколько последних домашних заданий показывать
 
 
 def recent_hws(sid, n=HW_SHOWN):
@@ -715,7 +715,7 @@ def hw_view(cid, sid, mid=None):
         parts = [f"📚 <b>Домашка: {esc(st['name'])}</b>"]
         for i, hw in enumerate(hws):
             files = hw_files(hw["id"])
-            block = f"{hw_title(i, hw)}\n{esc(clip(hw['text'], 1700))}"
+            block = f"{hw_title(i, hw)}\n{esc(clip(hw['text'], 3300 // HW_SHOWN))}"
             if files:
                 block += f"\n📎 Вложений: {len(files)}"
                 kb.append([btn(f"📎 Вложения от {fmt_date(hw['created'][:10])}", f"hwfi:{hw['id']}")])
@@ -1336,7 +1336,7 @@ def student_card(cid, st, mid=None):
              f"Постоянное расписание: {slots_text(sid) or '—'}"]
     kb = [[btn("📅 Занятия на неделю", "st:week")]]
     for i, hw in enumerate(recent_hws(sid)):
-        lines += ["", hw_title(i, hw), esc(clip(hw["text"], 1700))]
+        lines += ["", hw_title(i, hw), esc(clip(hw["text"], 3300 // HW_SHOWN))]
         files = hw_files(hw["id"])
         if files:
             kb.append([btn(f"📎 Материалы от {fmt_date(hw['created'][:10])} ({len(files)})",
@@ -1387,8 +1387,13 @@ def student_callback(data, uid, cid, mid):
         return
     if data == "st:week":
         student_week(cid, st, mid)
-    elif data == "st:files":
-        hw = latest_hw(st["id"])
+    elif data == "st:files" or data.startswith("st:f:"):
+        if data == "st:files":          # кнопка из старых сообщений
+            hw = latest_hw(st["id"])
+        else:
+            # ученик может открыть вложения только своих заданий
+            hw = q1("SELECT * FROM homework WHERE id=? AND student_id=?",
+                    int(data.split(":")[2]), st["id"])
         if hw:
             for f in hw_files(hw["id"]):
                 copy_message(cid, f["from_chat_id"], f["message_id"])
